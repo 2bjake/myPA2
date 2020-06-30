@@ -36,6 +36,7 @@ extern YYSTYPE cool_yylval;
 int int_const_idx = 0;
 int str_const_idx = 0;
 int id_idx = 0;
+int comment_nest_lvl = 0;
 
 void push_char(char c) {
   if (string_buf_ptr - string_buf < MAX_STR_CONST) {
@@ -55,18 +56,46 @@ INT            [0-9]+
 TYPEID         [A-Z][A-Za-z0-9_]*
 OBJECTID       [a-z][A-Za-z0-9_]*
 
-/* string condition */
+/* conditions */
 
-%x STR
+%x str
+%x comment
 %%
 
- /* Newline */
+ /* Whitespace */
 
 \n  curr_lineno++;
 
- /* Nested comments */
+[ \b\t\r\f\v] /* eat whitespace */
 
+ /* Comments */
 
+--.* /* eat -- and everything after it to the end of the line/file */
+
+"(*"  comment_nest_lvl++; BEGIN(comment);
+
+"*)"  {
+  cool_yylval.error_msg = "Unmatched *)";
+  return (ERROR);
+}
+
+<comment>[^(*\n]*          /* eat anything that's not a '*' or '(' */
+<comment>"*"+[^*)(\n]*  /* eat up '*'s not followed by ')'s */
+<comment>"("+[^*(\n]*  /* eat up '('s not followed by '*'s */
+<comment>\n               curr_lineno++;
+<comment>"(*"           comment_nest_lvl++;
+
+<comment>"*"+")"  {
+  if (--comment_nest_lvl == 0) {
+    BEGIN(INITIAL);
+  }
+}
+
+<comment><<EOF>> {
+  BEGIN(INITIAL);
+  cool_yylval.error_msg = "EOF in comment";
+  return (ERROR);
+}
 
  /* The multiple-character operators */
 
@@ -86,6 +115,7 @@ OBJECTID       [a-z][A-Za-z0-9_]*
 (?i:class)     return (CLASS);
 (?i:else)      return (ELSE);
 (?i:fi)        return (FI);
+(?i:if)        return (IF);
 (?i:in)        return (IN);
 (?i:inherits)  return (INHERITS);
 (?i:let)       return (LET);
@@ -126,9 +156,9 @@ f(?i:alse)    cool_yylval.boolean = false; return (BOOL_CONST);
   *  \n \t \b \f, the result is c.
   */
 
-\" { string_buf_ptr = string_buf; BEGIN(STR); }
+\" { string_buf_ptr = string_buf; BEGIN(str); }
 
-<STR>\"  {
+<str>\"  {
   BEGIN(INITIAL);
   int len = string_buf_ptr - string_buf;
   if (len < MAX_STR_CONST) {
@@ -145,29 +175,29 @@ f(?i:alse)    cool_yylval.boolean = false; return (BOOL_CONST);
   }
 }
 
-<STR>\\t  push_char('\t');
-<STR>\\b  push_char('\b');
-<STR>\\n  push_char('\n');
-<STR>\\f  push_char('\f');
-<STR>\\.  push_char(yytext[1]);
+<str>\\t  push_char('\t');
+<str>\\b  push_char('\b');
+<str>\\n  push_char('\n');
+<str>\\f  push_char('\f');
+<str>\\.  push_char(yytext[1]);
 
-<STR>\\\n  curr_lineno++; push_char(yytext[1]);
+<str>\\\n  curr_lineno++; push_char(yytext[1]);
 
-<STR>[^\\\n\"]+  {
+<str>[^\\\n\"]+  {
   char *yptr = yytext;
   while (*yptr) {
     push_char(*yptr++);
   }
 }
 
-<STR>\\?\n  {
+<str>\\?\n  {
   BEGIN(INITIAL);
   unput('\n');
   cool_yylval.error_msg = "Unterminated string constant";
   return (ERROR);
 }
 
-<STR><<EOF>> {
+<str><<EOF>> {
   BEGIN(INITIAL);
   cool_yylval.error_msg = "EOF in string constant";
   return (ERROR);
@@ -175,7 +205,7 @@ f(?i:alse)    cool_yylval.boolean = false; return (BOOL_CONST);
 
  /* Invalid character for start of token  */
 
-[^ \t\r\n\f]  {
+[^ \t\r\n\f\v]  {
   cool_yylval.error_msg = yytext;
   return (ERROR);
 }
