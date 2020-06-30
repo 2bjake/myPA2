@@ -30,9 +30,7 @@ extern int verbose_flag;
 
 extern YYSTYPE cool_yylval;
 
-/*
- *  Add Your own definitions here
- */
+/* Add Your own definitions here */
 int int_const_idx = 0;
 int str_const_idx = 0;
 int id_idx = 0;
@@ -48,6 +46,7 @@ void push_char(char c) {
 
  /* Define names for regular expressions here. */
 
+DBL_QUOTE      \"
 SINGLE_CHAR    [;:,\{\}\+\-\*/~<=\(\)@\.]
 DARROW         =>
 ASSIGN         <-
@@ -66,23 +65,26 @@ OBJECTID       [a-z][A-Za-z0-9_]*
 
 \n  curr_lineno++;
 
-[ \b\t\r\f\v] /* eat whitespace */
+[ \b\t\r\f\v]  /* eat whitespace */
 
  /* Comments */
 
---.* /* eat -- and everything after it to the end of the line/file */
-
-"(*"  comment_nest_lvl++; BEGIN(comment);
+--.*  /* eat '--' and everything after it to the end of the line/file */
 
 "*)"  {
   cool_yylval.error_msg = "Unmatched *)";
   return (ERROR);
 }
 
-<comment>[^(*\n]*          /* eat anything that's not a '*' or '(' */
-<comment>"*"+[^*)(\n]*  /* eat up '*'s not followed by ')'s */
-<comment>"("+[^*(\n]*  /* eat up '('s not followed by '*'s */
-<comment>\n               curr_lineno++;
+"(*"  {
+  comment_nest_lvl++;
+  BEGIN(comment);
+}
+
+<comment>[^(*\n]*       /* eat anything that's not a '*' or '(' */
+<comment>"*"+[^*)(\n]*  /* eat up lone stars */
+<comment>"("+[^*(\n]*   /* eat up lone '('s */
+<comment>\n             curr_lineno++;
 <comment>"(*"           comment_nest_lvl++;
 
 <comment>"*"+")"  {
@@ -99,13 +101,14 @@ OBJECTID       [a-z][A-Za-z0-9_]*
 
  /* The multiple-character operators */
 
-{DARROW}   return (DARROW);
-{ASSIGN}   return (ASSIGN);
-{LE}       return (LE);
+{DARROW}  return (DARROW);
+{ASSIGN}  return (ASSIGN);
+
+{LE}  return (LE);
 
  /* The single-character operators. */
 
-{SINGLE_CHAR}     return yytext[0];
+{SINGLE_CHAR}  return yytext[0];
 
  /*
   * Keywords are case-insensitive except for the values true and false,
@@ -130,8 +133,15 @@ OBJECTID       [a-z][A-Za-z0-9_]*
 (?i:isvoid)    return (ISVOID);
 (?i:not)       return (NOT);
 
-t(?i:rue)     cool_yylval.boolean = true; return (BOOL_CONST);
-f(?i:alse)    cool_yylval.boolean = false; return (BOOL_CONST);
+t(?i:rue)  {
+  cool_yylval.boolean = true;
+  return (BOOL_CONST);
+}
+
+f(?i:alse)  {
+  cool_yylval.boolean = false;
+  return (BOOL_CONST);
+}
 
  /* Symbols - int constants, type ids, object ids */
 
@@ -156,11 +166,14 @@ f(?i:alse)    cool_yylval.boolean = false; return (BOOL_CONST);
   *  \n \t \b \f, the result is c.
   */
 
-\" { string_buf_ptr = string_buf; BEGIN(str); }
+{DBL_QUOTE} {
+  string_buf_ptr = string_buf;
+  BEGIN(str);
+}
 
-<str>\"  {
+<str>{DBL_QUOTE}  {
   BEGIN(INITIAL);
-  int len = string_buf_ptr - string_buf;
+  size_t len = string_buf_ptr - string_buf;
   if (len < MAX_STR_CONST) {
     *string_buf_ptr = '\0';
     if (strlen(string_buf) != len) {
@@ -182,7 +195,10 @@ f(?i:alse)    cool_yylval.boolean = false; return (BOOL_CONST);
 <str>\0   push_char('\0');
 <str>\\.  push_char(yytext[1]);
 
-<str>\\\n  curr_lineno++; push_char(yytext[1]);
+<str>\\\n {
+  curr_lineno++;
+  push_char('\n');
+}
 
 <str>[^\\\n\0\"]+  {
   char *yptr = yytext;
@@ -191,7 +207,7 @@ f(?i:alse)    cool_yylval.boolean = false; return (BOOL_CONST);
   }
 }
 
-<str>\\?\n  {
+<str>\n  {
   BEGIN(INITIAL);
   unput('\n');
   cool_yylval.error_msg = "Unterminated string constant";
