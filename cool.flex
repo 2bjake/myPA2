@@ -33,9 +33,15 @@ extern YYSTYPE cool_yylval;
 /*
  *  Add Your own definitions here
  */
- int int_const_idx = 0;
- int str_const_idx = 0;
- int id_idx = 0;
+int int_const_idx = 0;
+int str_const_idx = 0;
+int id_idx = 0;
+
+void push_char(char c) {
+  if (string_buf_ptr - string_buf < MAX_STR_CONST) {
+    *string_buf_ptr++ = c;
+  }
+}
 
 %}
 
@@ -137,21 +143,27 @@ OBJECTID       [a-z][A-Za-z0-9_]*
 
 <STR>\"  {
   BEGIN(INITIAL);
-  *string_buf_ptr = '\0';
-  cool_yylval.symbol = new StringEntry(string_buf, strlen(string_buf), str_const_idx++);
-  return (STR_CONST);
+  if (string_buf_ptr - string_buf < MAX_STR_CONST) {
+    *string_buf_ptr = '\0';
+    printf("%d", strlen(string_buf));
+    cool_yylval.symbol = new StringEntry(string_buf, strlen(string_buf), str_const_idx++);
+    return (STR_CONST);
+  } else {
+    cool_yylval.error_msg = "String constant too long";
+    return (ERROR);
+  }
 }
 
-<STR>\\t  *string_buf_ptr++ = '\t';
-<STR>\\b  *string_buf_ptr++ = '\b';
-<STR>\\n  *string_buf_ptr++ = '\n';
-<STR>\\f  *string_buf_ptr++ = '\f';
-<STR>\\.  *string_buf_ptr++ = yytext[1];
+<STR>\\t  push_char('\t');
+<STR>\\b  push_char('\b');
+<STR>\\n  push_char('\n');
+<STR>\\f  push_char('\f');
+<STR>\\.  push_char(yytext[1]);
 
 <STR>[^\\\n\"\0]+  {
   char *yptr = yytext;
   while (*yptr) {
-    *string_buf_ptr++ = *yptr++;
+    push_char(*yptr++);
   }          
 }
 
