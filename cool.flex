@@ -45,107 +45,98 @@ void push_char(char c) {
 
 %}
 
-/*
- * Define names for regular expressions here.
- */
-CHAR            [\;\:\,\{\}\+\-\*\/\~\<\=\(\)\@\.]
-CLASS           (?i:class)
-ELSE            (?i:else)
-FI              (?i:fi)
-IN              (?i:in)
-INHERITS        (?i:inherits)
-LET             (?i:let)
-LOOP            (?i:loop)
-POOL            (?i:pool)
-THEN            (?i:then)
-WHILE           (?i:while)
-CASE            (?i:case)
-ESAC            (?i:esac)
-OF              (?i:of)
-DARROW          =>
-NEW            (?i:new)
-ISVOID         (?i:isvoid)
-ASSIGN          <-
-NOT            (?i:not)
+ /* Define names for regular expressions here. */
+
+SINGLE_CHAR    [;:,\{\}\+\-\*/~<=\(\)@\.]
+DARROW         =>
+ASSIGN         <-
 LE             <=
-
 INT            [0-9]+
-
-TRUE           t(?i:rue)
-FALSE          f(?i:alse)
-
 TYPEID         [A-Z][A-Za-z0-9_]*
 OBJECTID       [a-z][A-Za-z0-9_]*
+
+/* string condition */
 
 %x STR
 %%
 
- /*
-  *  Nested comments
-  */
+ /* Newline */
+
+\n  curr_lineno++;
+
+ /* Nested comments */
 
 
- /*
-  *  The multiple-character operators.
-  */
-\n         curr_lineno++;
+
+ /* The multiple-character operators */
+
 {DARROW}   return (DARROW);
 {ASSIGN}   return (ASSIGN);
 {LE}       return (LE);
 
-{CHAR}     return yytext[0];
+ /* The single-character operators. */
+
+{SINGLE_CHAR}     return yytext[0];
 
  /*
   * Keywords are case-insensitive except for the values true and false,
   * which must begin with a lower-case letter.
   */
 
-{CLASS}     return (CLASS);
-{ELSE}      return (ELSE);
-{FI}        return (FI);
-{IN}        return (IN);
-{INHERITS}  return (INHERITS);
-{LET}       return (LET);
-{LOOP}      return (LOOP);
-{POOL}      return (POOL);
-{THEN}      return (THEN);
-{WHILE}     return (WHILE);
-{CASE}      return (CASE);
-{ESAC}      return (ESAC);
-{OF}        return (OF);
-{NEW}       return (NEW);
-{ISVOID}    return (ISVOID);
-{NOT}       return (NOT);
+(?i:class)     return (CLASS);
+(?i:else)      return (ELSE);
+(?i:fi)        return (FI);
+(?i:in)        return (IN);
+(?i:inherits)  return (INHERITS);
+(?i:let)       return (LET);
+(?i:loop)      return (LOOP);
+(?i:pool)      return (POOL);
+(?i:then)      return (THEN);
+(?i:while)     return (WHILE);
+(?i:case)      return (CASE);
+(?i:esac)      return (ESAC);
+(?i:of)        return (OF);
+(?i:new)       return (NEW);
+(?i:isvoid)    return (ISVOID);
+(?i:not)       return (NOT);
 
-{TRUE}     cool_yylval.boolean = true; return (BOOL_CONST);
-{FALSE}    cool_yylval.boolean = false; return (BOOL_CONST);
+t(?i:rue)     cool_yylval.boolean = true; return (BOOL_CONST);
+f(?i:alse)    cool_yylval.boolean = false; return (BOOL_CONST);
+
+ /* Symbols - int constants, type ids, object ids */
 
 {INT} {
   cool_yylval.symbol = new IntEntry(yytext, strlen(yytext), int_const_idx++);
   return (INT_CONST);
 }
 
-{TYPEID}  { cool_yylval.symbol = new IdEntry(yytext, strlen(yytext), id_idx++);
-            return (TYPEID);
-          }
+{TYPEID}  {
+  cool_yylval.symbol = new IdEntry(yytext, strlen(yytext), id_idx++);
+  return (TYPEID);
+}
 
-{OBJECTID}  { cool_yylval.symbol = new IdEntry(yytext, strlen(yytext), id_idx++);
-            return (OBJECTID);
-          }
+{OBJECTID}  {
+  cool_yylval.symbol = new IdEntry(yytext, strlen(yytext), id_idx++);
+  return (OBJECTID);
+}
+
  /*
   *  String constants (C syntax)
-  *  Escape sequence \c is accepted for all characters c. Except for 
+  *  Escape sequence \c is accepted for all characters c. Except for
   *  \n \t \b \f, the result is c.
-  *
   */
 
 \" { string_buf_ptr = string_buf; BEGIN(STR); }
 
 <STR>\"  {
   BEGIN(INITIAL);
-  if (string_buf_ptr - string_buf < MAX_STR_CONST) {
+  int len = string_buf_ptr - string_buf;
+  if (len < MAX_STR_CONST) {
     *string_buf_ptr = '\0';
-    printf("%d", strlen(string_buf));
+    if (strlen(string_buf) != len) {
+      cool_yylval.error_msg = "String contains null character";
+      return (ERROR);
+    }
     cool_yylval.symbol = new StringEntry(string_buf, strlen(string_buf), str_const_idx++);
     return (STR_CONST);
   } else {
@@ -160,11 +151,13 @@ OBJECTID       [a-z][A-Za-z0-9_]*
 <STR>\\f  push_char('\f');
 <STR>\\.  push_char(yytext[1]);
 
-<STR>[^\\\n\"\0]+  {
+<STR>\\\n  curr_lineno++; push_char(yytext[1]);
+
+<STR>[^\\\n\"]+  {
   char *yptr = yytext;
   while (*yptr) {
     push_char(*yptr++);
-  }          
+  }
 }
 
 <STR>\\?\n  {
@@ -174,15 +167,16 @@ OBJECTID       [a-z][A-Za-z0-9_]*
   return (ERROR);
 }
 
-<STR>\0  {
-  BEGIN(INITIAL);
-  cool_yylval.error_msg = "String contains null character";
-  return (ERROR);
-}
-
 <STR><<EOF>> {
   BEGIN(INITIAL);
   cool_yylval.error_msg = "EOF in string constant";
+  return (ERROR);
+}
+
+ /* Invalid character for start of token  */
+
+[^ \t\r\n\f]  {
+  cool_yylval.error_msg = yytext;
   return (ERROR);
 }
 
