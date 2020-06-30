@@ -179,11 +179,12 @@ f(?i:alse)    cool_yylval.boolean = false; return (BOOL_CONST);
 <str>\\b  push_char('\b');
 <str>\\n  push_char('\n');
 <str>\\f  push_char('\f');
+<str>\0   push_char('\0');
 <str>\\.  push_char(yytext[1]);
 
 <str>\\\n  curr_lineno++; push_char(yytext[1]);
 
-<str>[^\\\n\"]+  {
+<str>[^\\\n\0\"]+  {
   char *yptr = yytext;
   while (*yptr) {
     push_char(*yptr++);
